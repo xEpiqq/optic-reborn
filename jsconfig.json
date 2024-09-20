@@ -1,0 +1,10 @@
+{
+    "compilerOptions": {
+      "baseUrl": ".",
+      "paths": {
+        "$lib/components": ["src/lib/components"],
+        "$lib/utils": ["src/lib/utils"]
+      }
+    }
+  }
+  
