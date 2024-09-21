@@ -1,5 +1,3 @@
-<!-- src/lib/GoogleMap.svelte -->
-
 <script>
   import { onMount, onDestroy } from 'svelte';
   export let clusters = []; // Receive clusters as a prop
@@ -86,6 +84,10 @@
       const mapOptions = {
         center: { lat: 39.50, lng: -98.35 }, // Geographic center of the US
         zoom: 4, // Adjust based on the initial zoom level
+        mapTypeControl: false, // Remove the "Map/Satellite" toggle
+        streetViewControl: false, // Remove the Street View pegman
+        fullscreenControl: false, // Remove the fullscreen button
+        zoomControl: false, // Remove the zoom buttons
       };
 
       // Initialize the map
