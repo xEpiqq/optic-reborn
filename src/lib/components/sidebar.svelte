@@ -1,9 +1,17 @@
 <script>
   import { createEventDispatcher } from 'svelte';
-
+  import { page } from '$app/stores'; // Import page store for route detection
+  
   export let isExpanded = true;
   
   const dispatch = createEventDispatcher();
+
+  const menuItems = [
+    { name: 'Map', route: '/' },
+    { name: 'Import', route: '/import' },
+    { name: 'Onboard', route: '/onboard' },
+    { name: 'View Reports', route: '/reports' }
+  ];
 
   function toggleSidebar() {
     isExpanded = !isExpanded;
@@ -24,9 +32,9 @@
     </div>
     <div class="border-t border-gray-700 mt-1"></div>
     <div class="max-h-32 overflow-y-auto">
-      {#each ['Import', 'Onboard', 'View Reports'] as item}
+      {#each menuItems.filter(item => item.route !== $page.url.pathname) as item}
         <div class="flex items-center p-2 hover:bg-gray-800 cursor-pointer text-sm">
-          <span>{item}</span>
+          <a href={item.route} class="w-full text-white">{item.name}</a> <!-- Actual link -->
         </div>
       {/each}
     </div>
@@ -43,4 +51,7 @@
 
 <style>
   /* Add any additional styles here if needed */
+  a {
+    text-decoration: none;
+  }
 </style>
