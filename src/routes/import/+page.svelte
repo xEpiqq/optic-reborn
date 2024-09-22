@@ -116,8 +116,6 @@
   </div>
 </div>
 
-<!-- Floating mapping UI on the right -->
-<!-- Floating mapping UI on the right -->
 {#if isMappingVisible}
   <div class="fixed z-50 right-4 top-4 bg-gray-900 text-white rounded-lg shadow-lg transition-all duration-300 w-96 max-h-[75vh] overflow-y-auto border border-gray-300/10 custom-scrollbar">
     <!-- Expanded mapping modal content -->
@@ -132,9 +130,22 @@
     <div class="border-t border-gray-700 mt-1"></div>
     <div class="p-2">
       <p class="text-sm">Map CSV columns to database columns.</p>
+      <!-- Table Headers -->
+      <div class="grid grid-cols-2 text-center mb-2 mt-2">
+        <div>
+          <h2 class="text-sm font-semibold text-gray-400 text-left">Your Columns</h2>
+        </div>
+        <div>
+          <h2 class="text-sm font-semibold text-gray-400">Database Fields</h2>
+        </div>
+      </div>
+
+      <!-- Mapping Rows -->
       {#each csvHeaders as header}
         <div class="flex justify-between items-center mt-2">
+          <!-- Your Columns -->
           <span class="text-gray-300">{header}</span>
+          <!-- Database Fields Dropdown -->
           <select bind:value={mapping[header]} class="bg-gray-800 text-gray-300 p-2 rounded">
             <option value="">Select column</option>
             {#each data.tableColumns as column}
@@ -144,12 +155,22 @@
         </div>
       {/each}
 
-      <button class="mt-6 bg-blue-600 text-white py-2 px-4 rounded hover:bg-blue-500" on:click={submitMapping}>
-        Submit Mapping
-      </button>
+      <!-- Buttons container -->
+      <div class="mt-6 flex justify-between">
+        <!-- Submit Mapping Button -->
+        <button class="bg-blue-600 text-white py-2 px-4 rounded hover:bg-blue-500" on:click={submitMapping}>
+          Submit Mapping
+        </button>
+
+        <!-- Add Custom Field Button -->
+        <button class="bg-gray-600 text-white py-2 px-4 rounded hover:bg-gray-500">
+          Add Custom Field
+        </button>
+      </div>
     </div>
   </div>
 {/if}
+
 
 <style>
   .custom-scrollbar {
