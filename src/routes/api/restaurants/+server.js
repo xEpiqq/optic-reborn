@@ -1,9 +1,11 @@
+// File: src/routes/api/restaurants/+server.js
+
 import { json } from '@sveltejs/kit';
 import { supabase } from '../../../lib/supabaseClient';
 
 export async function GET({ url }) {
+  console.log("FETCHING RESTAURANTS WITHIN BOUNDS");
 
-  console.log("FETCHING!")
   const min_lat = parseFloat(url.searchParams.get('min_lat'));
   const min_lon = parseFloat(url.searchParams.get('min_lon'));
   const max_lat = parseFloat(url.searchParams.get('max_lat'));
@@ -38,7 +40,15 @@ export async function GET({ url }) {
       );
     }
 
-    return json({ restaurants: data });
+    // Optionally map the data to include only required fields
+    const restaurants = data.map(restaurant => ({
+      id: restaurant.id,
+      address: restaurant.address,
+      latitude: restaurant.latitude,
+      longitude: restaurant.longitude
+    }));
+
+    return json({ restaurants });
   } catch (err) {
     console.error('Unexpected error:', err);
     return json(
