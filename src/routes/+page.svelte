@@ -2,7 +2,7 @@
   import { onMount, onDestroy } from 'svelte';
   import CollapsibleSidebar from '../lib/components/sidebar.svelte';
   import TerritoryModal from '../lib/components/territory.svelte';
-  import AssignLeadsModal from '../lib/components/assignLeadsModal.svelte';
+  import AssignLeadsModal from '../lib/components/AssignLeadsModal.svelte';
   import Toolbar from '../lib/components/toolbar.svelte';
   import { supabase } from '../lib/supabaseClient';
   import lodashPkg from 'lodash';
