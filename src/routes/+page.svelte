@@ -9,6 +9,9 @@
   const { debounce } = lodashPkg;
 
   export let data;
+  export let territories = data.territories || []; // Initialize territories from data
+  let polygons = []; // To keep track of rendered territory polygons
+
   const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
   let mapElement;
   let map;
@@ -29,8 +32,8 @@
   // State variables for Assign Leads Modal
   let assignLeadsModalExpanded = false;
   let selectedPolygon = null;
-  let isAssignLeadsFlow = false; // Existing flag
-  let isAssignLeadsMode = false; // New flag to indicate Assign Leads mode
+  let isAssignLeadsFlow = false; // Flag to indicate Assign Leads flow
+  let isAssignLeadsMode = false; // Flag to indicate Assign Leads mode
 
   // InfoWindow for displaying assigned user info
   let infoWindow = null;
@@ -38,7 +41,7 @@
   // Reactive variable for Toolbar's isDrawingMode
   let isDrawingMode = false;
 
-  // New flags and cache for individual markers
+  // Flags and cache for individual markers
   let isDisplayingIndividualMarkers = false;
   const individualMarkersCache = [];
 
@@ -47,6 +50,9 @@
       await loadGoogleMaps(apiKey);
       initializeMap();
       setupDrawingManager();
+
+      // Render existing territories
+      renderExistingTerritories();
 
       // Initial fetch based on the initial zoom level
       if (data.initialZoomLevel >= ZOOM_THRESHOLD) {
@@ -58,7 +64,6 @@
 
       // Update isDrawingMode after map and drawingManager are initialized
       updateDrawingMode();
-      
     } catch (error) {
       console.error('Error loading Google Maps:', error);
       errorMessage = 'Failed to load Google Maps. Please try again later.';
@@ -103,6 +108,38 @@
       document.head.appendChild(script);
     });
 
+  /**
+   * Renders existing territories on the map.
+   */
+  const renderExistingTerritories = () => {
+    territories.forEach((territory) => {
+      const geom = territory.geom;
+      const color = territory.color || '#FF0000'; // Fallback color
+
+      if (!geom || geom.type !== 'Polygon') {
+        console.error(`Invalid geometry for territory ID: ${territory.id}`);
+        return;
+      }
+
+      // Convert GeoJSON coordinates to Google Maps LatLng
+      const path = geom.coordinates[0].map(coord => new google.maps.LatLng(coord[1], coord[0]));
+
+      const polygon = new google.maps.Polygon({
+        paths: path,
+        strokeColor: color,
+        strokeOpacity: 0.8,
+        strokeWeight: 2,
+        fillColor: color,
+        fillOpacity: 0.35,
+      });
+
+      polygon.setMap(map);
+      polygons.push(polygon);
+    });
+
+    console.log(`${polygons.length} existing territories rendered on the map.`);
+  };
+
   const getMappedZoomLevel = (zoom) => {
     if (zoom >= 11) return 9;
     if (zoom >= 10) return 8;
@@ -126,6 +163,21 @@
     const expandedNE = new google.maps.LatLng(ne.lat() + latSpan * (factor - 1), ne.lng() + lngSpan * (factor - 1));
     const expandedSW = new google.maps.LatLng(sw.lat() - latSpan * (factor - 1), sw.lng() - lngSpan * (factor - 1));
     return new google.maps.LatLngBounds(expandedSW, expandedNE);
+  };
+
+  const fetchTerritories = async () => {
+    const { data, error } = await supabase
+      .from('territories')
+      .select('id, name, color, geom');
+
+    if (error) {
+      console.error('Error fetching territories:', error);
+      errorMessage = 'Failed to load territories.';
+      return;
+    }
+
+    territories = data;
+    renderExistingTerritories();
   };
 
   const fetchClusters = async (zoomLevel) => {
@@ -186,6 +238,98 @@
     } finally {
       isLoading = false;
     }
+  };
+
+  /**
+   * Function to save the territory data from the modal.
+   */
+  const handleSaveTerritory = async (event) => {
+    const { name, color, polygon } = event.detail;
+
+    // Extract coordinates from the polygon
+    const path = polygon.getPath().getArray().map(latLng => ({
+      lat: latLng.lat(),
+      lng: latLng.lng()
+    }));
+
+    // Prepare the payload
+    const payload = {
+      name,
+      color,          // Ensure color is included
+      coordinates: path
+    };
+
+    try {
+      isLoading = true;
+      errorMessage = null;
+      
+      const response = await fetch('/api/saveTerritory', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(payload)
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.message || 'Failed to save territory.');
+      }
+
+      // Add the new territory to the map
+      addTerritoryToMap(name, color, path);
+
+      // Close the modal
+      territoryModalExpanded = false;
+      selectedPolygon = null;
+      console.log('Territory saved and modal closed.');
+    } catch (error) {
+      console.error('Error saving territory:', error);
+      alert(`Error: ${error.message}`);
+      errorMessage = error.message;
+
+      // Remove the polygon if save failed
+      if (polygon) {
+        polygon.setMap(null);
+        selectedPolygon = null;
+      }
+    } finally {
+      isLoading = false;
+    }
+  };
+
+  /**
+   * Function to handle cancellation from the territory modal.
+   */
+  const handleCancelTerritory = () => {
+    if (selectedPolygon) {
+      selectedPolygon.setMap(null);
+      selectedPolygon = null;
+      console.log('Territory drawing canceled and polygon removed.');
+    }
+    territoryModalExpanded = false;
+  };
+
+  /**
+   * Function to add the newly saved territory to the map
+   */
+  const addTerritoryToMap = (name, color, path) => {
+    const googlePath = path.map(coord => new google.maps.LatLng(coord.lat, coord.lng));
+
+    const polygon = new google.maps.Polygon({
+      paths: googlePath,
+      strokeColor: color,
+      strokeOpacity: 0.8,
+      strokeWeight: 2,
+      fillColor: color,
+      fillOpacity: 0.35,
+    });
+
+    polygon.setMap(map);
+    polygons.push(polygon);
+
+    console.log(`Added new territory "${name}" to the map with color ${color}.`);
   };
 
   const addClusterMarkers = (clusters) => {
@@ -331,7 +475,7 @@
           marker.addListener('click', () => {
             const contentString = `
               <div>
-                <h3>${restaurant.id}</h3>
+                <h3>Lead ID: ${restaurant.id}</h3>
                 <p>Assigned to: ${restaurant.restaurant_user_id}</p>
               </div>
             `;
@@ -396,7 +540,6 @@
       if (!isDisplayingIndividualMarkers) {
         console.log('Displaying individual markers.');
         await fetchIndividualMarkers(); // Fetch and display individual markers
-        // isDisplayingIndividualMarkers is set within fetchIndividualMarkers
         clearClusterMarkers(); // Clear clusters if any
       } else {
         console.log('Individual markers are already displayed. No need to refetch.');
@@ -472,7 +615,7 @@
     console.log('Drawing Manager set up.');
 
     google.maps.event.addListener(drawingManager, 'polygoncomplete', (polygon) => {
-      console.log('Territory drawn:', polygon.getPath().getArray());
+      console.log('Polygon drawn:', polygon.getPath().getArray());
       selectedPolygon = polygon; // Store the polygon
 
       if (isAssignLeadsFlow) {
@@ -481,8 +624,9 @@
         isAssignLeadsMode = true; // Enable Assign Leads mode
         drawingManager.setDrawingMode(null); // Disable drawing mode
       } else {
-        // Handle normal territory drawing if needed
-        territoryModalExpanded = true; // Open the Territory Modal if this is a regular draw
+        // Handle territory drawing
+        territoryModalExpanded = true; // Open the Territory Modal
+        drawingManager.setDrawingMode(null); // Disable drawing mode
       }
     });
   };
@@ -574,6 +718,26 @@
     isAssignLeadsMode = false; // Disable Assign Leads mode after success
   };
 
+  /**
+   * Handle opening the territory modal.
+   */
+  const handleOpenTerritoryModal = () => {
+    territoryModalExpanded = true;
+  };
+
+  /**
+   * Handle starting the drawing mode from the territory modal.
+   */
+  const handleStartDrawing = () => {
+    if (drawingManager) {
+      drawingManager.setDrawingMode(google.maps.drawing.OverlayType.POLYGON);
+      console.log('Drawing mode activated from the territory modal.');
+    } else {
+      console.error('Drawing Manager is not initialized.');
+      errorMessage = 'Drawing tool is not available. Please try again.';
+    }
+  };
+
   onDestroy(() => {
     clearClusterMarkers();
     clearIndividualMarkers();
@@ -585,12 +749,22 @@
       infoWindow.close();
       console.log('InfoWindow closed.');
     }
+    polygons.forEach(polygon => polygon.setMap(null));
+    polygons = [];
   });
 </script>
 
 <style>
   .error-overlay {
     position: absolute;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background-color: rgba(255, 0, 0, 0.8);
+    color: white;
+    padding: 10px 20px;
+    border-radius: 5px;
+    z-index: 1001;
   }
 
   @keyframes fadeIn {
@@ -625,6 +799,7 @@
 
 <div class="flex flex-col h-screen relative">
   <CollapsibleSidebar isExpanded={sidebarExpanded} on:toggle={handleSidebarToggle} />
+  
   <div class="flex-1 relative">
     <div id="map" bind:this={mapElement} class="w-full h-full"></div>
 
@@ -642,7 +817,15 @@
   </div>
 
   {#if territoryModalExpanded}
-    <TerritoryModal isExpanded={territoryModalExpanded} on:toggle={handleTerritoryToggle} />
+  <TerritoryModal
+    isExpanded={territoryModalExpanded}
+    polygon={selectedPolygon}
+    territories={territories}
+    on:toggle={handleTerritoryToggle}
+    on:save={handleSaveTerritory}
+    on:cancel={handleCancelTerritory}
+    on:startDrawing={handleStartDrawing}
+  />
   {/if}
 
   {#if assignLeadsModalExpanded}
