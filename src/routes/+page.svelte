@@ -3,10 +3,11 @@
   import { onMount, onDestroy } from 'svelte';
   import CollapsibleSidebar from '../lib/components/sidebar.svelte';
   import TerritoryModal from '../lib/components/territory.svelte';
+  import AssignLeadsModal from '../lib/components/assignLeadsModal.svelte'; // Import the modal
   import Toolbar from '../lib/components/toolbar.svelte';
   import { supabase } from '../lib/supabaseClient';
   import lodashPkg from 'lodash';
-  const {debounce} = lodashPkg;
+  const { debounce } = lodashPkg;
   import { MarkerClusterer } from '@googlemaps/markerclusterer';
 
   export let data;
@@ -23,11 +24,15 @@
   let isLoading = false;
   let errorMessage = null;
 
-  ////////////////////
-  /////////////////
-  //////////////////
   let markerCluster; // Define markerCluster here to make it globally accessible
   let markerClustererLoaded = false; // Track whether the MarkerClusterer is loaded
+  let individualMarkers = []; // Track individual markers
+
+  const ZOOM_THRESHOLD = 12; // Define zoom threshold for switching between clusters and individual markers
+
+  // State variables for Assign Leads Modal
+  let assignLeadsModalExpanded = false;
+  let selectedPolygon = null; // Store the drawn polygon
 
   onMount(async () => {
     try {
@@ -41,11 +46,11 @@
       markerClustererLoaded = true; // Set flag to true after it's loaded
       console.log('MarkerClusterer loaded successfully.');
 
-      // Trigger fetching and clustering markers based on zoom level
-      if (data.initialZoomLevel >= 14) {
-        await fetchIndividualMarkers(); // This will handle clustering at zoom 14+
+      // Initial fetch based on the initial zoom level
+      if (data.initialZoomLevel >= ZOOM_THRESHOLD) {
+        await fetchIndividualMarkers(); // Handle individual markers
       } else {
-        await fetchClusters(getMappedZoomLevel(data.initialZoomLevel));
+        await fetchClusters(getMappedZoomLevel(data.initialZoomLevel)); // Handle clusters
       }
 
     } catch (error) {
@@ -75,9 +80,6 @@
       document.head.appendChild(script);
     });
   }
-  /////////////////
-  /////////////////
-  ////////////////
 
   const getMappedZoomLevel = (zoom) => {
     if (zoom >= 11) return 9;
@@ -104,7 +106,7 @@
     return new google.maps.LatLngBounds(expandedSW, expandedNE);
   };
 
-   const fetchClusters = async (zoomLevel) => {
+  const fetchClusters = async (zoomLevel) => {
     let clusters = []; 
     const bounds = map.getBounds();
     if (!bounds) {
@@ -214,100 +216,104 @@
   };
 
   async function fetchIndividualMarkers() {
-  if (!map) {
-    console.error('Map not initialized');
-    return;
-  }
-
-  // Get current map bounds and expand them by a factor of 3
-  const bounds = map.getBounds();
-  if (!bounds) {
-    console.error('Map bounds are undefined.');
-    return;
-  }
-  const expandedBounds = expandBounds(bounds, 3);  // Expanding bounds 3x
-
-  const min_lat = expandedBounds.getSouthWest().lat();
-  const min_lon = expandedBounds.getSouthWest().lng();
-  const max_lat = expandedBounds.getNorthEast().lat();
-  const max_lon = expandedBounds.getNorthEast().lng();
-
-  try {
-    // Fetch the markers from the server
-    const response = await fetch(`/api/restaurants?min_lat=${min_lat}&min_lon=${min_lon}&max_lat=${max_lat}&max_lon=${max_lon}`);
-    if (!response.ok) {
-      throw new Error('Failed to fetch individual markers.');
+    if (!map) {
+      console.error('Map not initialized');
+      return;
     }
 
-    const { restaurants } = await response.json();
-
-    // Clear current markers
-    clearClusterMarkers();
-
-    // Create markers for each restaurant
-    const markers = restaurants.map((restaurant) => {
-      return new google.maps.Marker({
-        position: { lat: restaurant.latitude, lng: restaurant.longitude },
-        title: restaurant.name,
-      });
-    });
-
-    // Use MarkerClusterer to cluster the markers at zoom levels 14 and 15
-    if (map.getZoom() >= 14 && map.getZoom() <= 15) {
-      // Remove previous clusters if any
-      if (markerCluster) {
-        markerCluster.clearMarkers();
-      }
-
-      // Create a new marker clusterer with the fetched markers
-      markerCluster = new MarkerClusterer({ 
-        map, 
-        markers,
-        imagePath: 'https://developers.google.com/maps/documentation/javascript/examples/markerclusterer/m',
-      });
-
-      console.log('Markers clustered client-side.');
-    } else {
-      // Add markers to the map individually at lower zoom levels
-      markers.forEach(marker => marker.setMap(map));
+    // Get current map bounds and expand them by a factor of 3
+    const bounds = map.getBounds();
+    if (!bounds) {
+      console.error('Map bounds are undefined.');
+      return;
     }
+    const expandedBounds = expandBounds(bounds, 3);  // Expanding bounds 3x
 
-    clusterMarkers = markers; // Store the markers
-    console.log(`${restaurants.length} markers added to the map.`);
-  } catch (error) {
-    console.error('Error fetching individual markers:', error);
-  }
-}
+    const min_lat = expandedBounds.getSouthWest().lat();
+    const min_lon = expandedBounds.getSouthWest().lng();
+    const max_lat = expandedBounds.getNorthEast().lat();
+    const max_lon = expandedBounds.getNorthEast().lng();
 
-
-
-
- const handleMapIdle = debounce(async () => {
-  if (!map) {
-        console.warn('Map is not initialized yet.');
-        return;
+    try {
+      isLoading = true;
+      console.log(`Fetching individual markers within bounds: ${min_lat}, ${min_lon}, ${max_lat}, ${max_lon}`);
+      const response = await fetch(`/api/restaurants?min_lat=${min_lat}&min_lon=${min_lon}&max_lat=${max_lat}&max_lon=${max_lon}`);
+      if (!response.ok) {
+        throw new Error('Failed to fetch individual markers.');
       }
-      const newZoomLevel = map.getZoom();
-      console.log(`Handle map idle: New zoom level is ${newZoomLevel}`);
-      if (newZoomLevel >= 14 && newZoomLevel <= 15) {
-        if (actualZoomLevel !== newZoomLevel) {
-          console.log('Transitioning to individual markers with clustering.');
-          actualZoomLevel = newZoomLevel;
-          await fetchIndividualMarkers();  // Fetch markers and apply clustering
-        } else {
-          console.log('Already displaying individual markers with clustering.');
-        }
+
+      const { restaurants } = await response.json();
+
+      // Clear current individual markers
+      clearIndividualMarkers();
+
+      // Create markers for each restaurant
+      individualMarkers = restaurants.map((restaurant) => {
+        const marker = new google.maps.Marker({
+          position: { lat: restaurant.latitude, lng: restaurant.longitude },
+          map,
+          title: restaurant.name,
+          // Customize marker appearance if needed
+        });
+
+        // Optional: Add event listeners to individual markers
+        marker.addListener('click', () => {
+          console.log(`Marker for ${restaurant.name} clicked.`);
+          // Implement additional behavior, e.g., show info window
+        });
+
+        return marker;
+      });
+
+      console.log(`${individualMarkers.length} individual markers added to the map.`);
+    } catch (error) {
+      console.error('Error fetching individual markers:', error);
+    } finally {
+      isLoading = false;
+    }
+  }
+
+  const clearIndividualMarkers = () => {
+    individualMarkers.forEach(marker => marker.setMap(null));
+    individualMarkers = [];
+    console.log('All individual markers cleared from the map.');
+  };
+
+  const handleMapIdle = debounce(async () => {
+    if (!map) {
+      console.warn('Map is not initialized yet.');
+      return;
+    }
+    const newZoomLevel = map.getZoom();
+    console.log(`Handle map idle: New zoom level is ${newZoomLevel}`);
+
+    if (newZoomLevel >= ZOOM_THRESHOLD) {
+      if (actualZoomLevel !== newZoomLevel) {
+        console.log('Displaying individual markers.');
+        actualZoomLevel = newZoomLevel;
+        effectiveZoomLevel = null; // Reset effective zoom level
+        await fetchIndividualMarkers();  // Fetch and display individual markers
+
+        // Clear clusters if any
+        clearClusterMarkers();
       } else {
-        const newEffectiveZoomLevel = getMappedZoomLevel(newZoomLevel);
-        if (newEffectiveZoomLevel !== effectiveZoomLevel) {
-          console.log(`Effective zoom level changed from ${effectiveZoomLevel} to ${newEffectiveZoomLevel}`);
-          effectiveZoomLevel = newEffectiveZoomLevel;
-          await fetchClusters(effectiveZoomLevel);  // Fetch clusters for other zoom levels
-        } else {
-          console.log('Effective zoom level unchanged.');
-        }
+        console.log('Already displaying individual markers.');
       }
-    }, 500);
+    } else {
+      const newEffectiveZoomLevel = getMappedZoomLevel(newZoomLevel);
+      if (effectiveZoomLevel !== newEffectiveZoomLevel) {
+        console.log(`Effective zoom level changed to ${newEffectiveZoomLevel}. Displaying clusters.`);
+        effectiveZoomLevel = newEffectiveZoomLevel;
+        actualZoomLevel = null; // Reset actual zoom level
+        await fetchClusters(newEffectiveZoomLevel);  // Fetch and display clusters
+
+        // Clear individual markers if any
+        clearIndividualMarkers();
+      } else {
+        console.log('Effective zoom level unchanged.');
+      }
+    }
+  }, 500);
 
   const initializeMap = () => {
     const options = {
@@ -323,8 +329,8 @@
     map.addListener('idle', handleMapIdle);
     console.log('Added "idle" event listener for zoom and pan changes.');
     google.maps.event.addListenerOnce(map, 'tilesloaded', () => {
-    console.log('Map tiles loaded.');
-      if (data.initialZoomLevel >= 14) {
+      console.log('Map tiles loaded.');
+      if (data.initialZoomLevel >= ZOOM_THRESHOLD) {
         fetchIndividualMarkers();
       } else {
         fetchClusters(getMappedZoomLevel(data.initialZoomLevel));
@@ -351,6 +357,9 @@
 
     google.maps.event.addListener(drawingManager, 'polygoncomplete', (polygon) => {
       console.log('Territory drawn:', polygon.getPath().getArray());
+      selectedPolygon = polygon; // Store the polygon
+      // Optionally, if you want to allow only one polygon at a time, clear existing polygons
+      // Or handle multiple polygons if needed
     });
   };
 
@@ -386,6 +395,7 @@
 
   const handleFilterLeads = () => {
     console.log('Filter Leads clicked');
+    // Implement filter leads functionality here
   };
 
   const handleToggleTerritoryMode = () => {
@@ -394,25 +404,45 @@
 
   const handleAssignLeads = () => {
     console.log('Assign Leads clicked');
+    if (!selectedPolygon) {
+      errorMessage = 'Please draw a territory on the map before assigning leads.';
+      return;
+    }
+    assignLeadsModalExpanded = true;
   };
 
   const handleCreateLead = () => {
     console.log('Create Lead clicked');
+    // Implement create lead functionality here
   };
 
-  onMount(async () => {
-    try {
-      await loadGoogleMaps(apiKey);
-      initializeMap();
-      setupDrawingManager();
-    } catch (error) {
-      console.error('Error loading Google Maps:', error);
-      errorMessage = 'Failed to load Google Maps. Please try again later.';
+  // Handle events emitted from AssignLeadsModal
+  const handleAssignLeadsToggle = (event) => {
+    assignLeadsModalExpanded = event.detail;
+  };
+
+  const handleAssignSuccess = () => {
+    console.log('Leads assigned successfully. Refreshing markers...');
+    // Remove the polygon from the map
+    if (selectedPolygon) {
+      selectedPolygon.setMap(null);
+      selectedPolygon = null;
     }
-  });
+    // Refresh markers based on current zoom level
+    if (map.getZoom() >= ZOOM_THRESHOLD) {
+      fetchIndividualMarkers();
+    } else {
+      fetchClusters(getMappedZoomLevel(map.getZoom()));
+    }
+  };
 
   onDestroy(() => {
     clearClusterMarkers();
+    clearIndividualMarkers();
+    if (markerCluster) {
+      markerCluster.clearMarkers();
+      console.log('MarkerCluster cleared.');
+    }
     if (drawingManager) {
       drawingManager.setMap(null);
       console.log('Drawing Manager removed.');
@@ -424,40 +454,40 @@
    * @param {string} key - The Google Maps API key.
    * @returns {Promise} - Resolves when the script is loaded, rejects on error.
    */
-   const loadGoogleMaps = (key) =>
-      new Promise((resolve, reject) => {
-        if (typeof window === 'undefined') {
-          reject(new Error('Window is undefined'));
-          return;
-        }
+  const loadGoogleMaps = (key) =>
+    new Promise((resolve, reject) => {
+      if (typeof window === 'undefined') {
+        reject(new Error('Window is undefined'));
+        return;
+      }
 
-        if (window.google && window.google.maps) {
-          console.log('Google Maps already loaded.');
-          resolve();
-          return;
-        }
+      if (window.google && window.google.maps) {
+        console.log('Google Maps already loaded.');
+        resolve();
+        return;
+      }
 
-        const script = document.createElement('script');
-        script.src = `https://maps.googleapis.com/maps/api/js?key=${key}&libraries=drawing`;
-        script.async = true;
-        script.defer = true;
-        script.onload = () => {
-          console.log('Google Maps script loaded successfully.');
+      const script = document.createElement('script');
+      script.src = `https://maps.googleapis.com/maps/api/js?key=${key}&libraries=drawing`;
+      script.async = true;
+      script.defer = true;
+      script.onload = () => {
+        console.log('Google Maps script loaded successfully.');
 
-          // Load MarkerClusterer script
-          const markerClustererScript = document.createElement('script');
-          markerClustererScript.src = 'https://developers.google.com/maps/documentation/javascript/examples/markerclusterer/markerclusterer.js';
-          markerClustererScript.async = true;
-          markerClustererScript.onload = resolve;
-          markerClustererScript.onerror = reject;
-          document.head.appendChild(markerClustererScript);
-        };
-        script.onerror = (e) => {
-          console.error('Error loading Google Maps script:', e);
-          reject(e);
-        };
-        document.head.appendChild(script);
-      });
+        // Load MarkerClusterer script
+        const markerClustererScript = document.createElement('script');
+        markerClustererScript.src = 'https://developers.google.com/maps/documentation/javascript/examples/markerclusterer/markerclusterer.js';
+        markerClustererScript.async = true;
+        markerClustererScript.onload = resolve;
+        markerClustererScript.onerror = reject;
+        document.head.appendChild(markerClustererScript);
+      };
+      script.onerror = (e) => {
+        console.error('Error loading Google Maps script:', e);
+        reject(e);
+      };
+      document.head.appendChild(script);
+    });
 
 </script>
 
@@ -524,6 +554,15 @@
 
   {#if territoryModalExpanded}
     <TerritoryModal isExpanded={territoryModalExpanded} on:toggle={handleTerritoryToggle} />
+  {/if}
+
+  {#if assignLeadsModalExpanded}
+    <AssignLeadsModal
+      isExpanded={assignLeadsModalExpanded}
+      polygon={selectedPolygon}
+      on:toggle={handleAssignLeadsToggle}
+      on:assignSuccess={handleAssignSuccess}
+    />
   {/if}
 
   <Toolbar
